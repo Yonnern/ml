@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wake Watch</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&display=swap" rel="stylesheet">
+<style>
+    :root {
+        --bg: #0e1424;
+        --bg-deep: #070b16;
+        --panel: #161e35;
+        --line: #26304f;
+        --text: #e8ecf8;
+        --muted: #8a94b4;
+        --awake: #2bd96b;
+        --asleep: #ff3b3b;
+        --idle: #5b6690;
+    }
+
+    * { box-sizing: border-box; margin: 0; }
+
+    html, body { height: 100%; }
+
+    body {
+        min-height: 100vh;
+        font-family: "Archivo", "Segoe UI", system-ui, sans-serif;
+        color: var(--text);
+        background: radial-gradient(ellipse at 50% 0%, var(--bg) 0%, var(--bg-deep) 70%);
+        display: flex;
+        justify-content: center;
+        align-items: flex-start;
+        padding: 24px 16px;
+        overflow-x: hidden;
+        transition: background 0.4s;
+    }
+
+    /* Full-screen red flash used while the person is not awake */
+    .flash {
+        position: fixed;
+        inset: 0;
+        background: var(--asleep);
+        opacity: 0;
+        pointer-events: none;
+        z-index: 10;
+    }
+    body.not-awake .flash { animation: flash 0.7s steps(1, end) infinite; }
+
+    @keyframes flash {
+        0%   { opacity: 0.55; }
+        50%  { opacity: 0; }
+        100% { opacity: 0.55; }
+    }
+
+    main {
+        position: relative;
+        z-index: 1;
+        margin: auto;
+        width: 100%;
+        max-width: 760px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        gap: 28px;
+    }
+
+    /* Massive status text above the camera */
+    #verdict {
+        width: 100%;
+        font-weight: 900;
+        font-stretch: 112%;
+        font-size: clamp(2rem, 12vw, 8.5rem);
+        line-height: 0.92;
+        letter-spacing: -0.03em;
+        color: var(--idle);
+        text-transform: uppercase;
+        transition: color 0.2s;
+        min-height: 1em;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    body.awake #verdict { color: var(--awake); text-shadow: 0 0 60px rgba(43, 217, 107, 0.35); }
+    body.not-awake #verdict { color: var(--asleep); text-shadow: 0 0 60px rgba(255, 59, 59, 0.6); animation: pulse 0.7s ease-in-out infinite; }
+
+    @keyframes pulse {
+        0%, 100% { transform: scale(1); }
+        50% { transform: scale(1.04); }
+    }
+
+    /* Camera */
+    .frame {
+        width: min(86vw, 440px);
+        aspect-ratio: 1 / 1;
+        border-radius: 28px;
+        background: var(--panel);
+        border: 6px solid var(--line);
+        overflow: hidden;
+        display: grid;
+        place-items: center;
+        transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    body.awake .frame { border-color: var(--awake); box-shadow: 0 0 50px rgba(43, 217, 107, 0.25); }
+    body.not-awake .frame { border-color: var(--asleep); box-shadow: 0 0 70px rgba(255, 59, 59, 0.6); }
+
+    #webcam-container { width: 100%; height: 100%; }
+    #webcam-container canvas { width: 100% !important; height: 100% !important; display: block; }
+
+    .placeholder { color: var(--muted); font-size: 1rem; padding: 24px; }
+    .frame.live .placeholder { display: none; }
+
+    /* Controls */
+    .controls { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+
+    button {
+        font: inherit;
+        font-weight: 700;
+        font-size: 1.05rem;
+        padding: 14px 34px;
+        border-radius: 999px;
+        border: 2px solid var(--text);
+        background: var(--text);
+        color: var(--bg-deep);
+        cursor: pointer;
+        transition: transform 0.1s, opacity 0.2s;
+    }
+    button:hover:not(:disabled) { transform: translateY(-2px); }
+    button:focus-visible { outline: 3px solid var(--awake); outline-offset: 3px; }
+    button:disabled { opacity: 0.4; cursor: default; }
+    button.ghost { background: transparent; color: var(--text); border-color: var(--line); }
+
+    #status { min-height: 1.4em; color: var(--muted); font-size: 0.95rem; max-width: 46ch; }
+
+    /* Probability bars */
+    #label-container {
+        width: min(86vw, 440px);
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+    .row { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; font-size: 0.9rem; color: var(--muted); text-align: left; }
+    .row .bar { grid-column: 1 / -1; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+    .row .bar i { display: block; height: 100%; width: 0; background: var(--idle); transition: width 0.15s; }
+    body.awake .row .bar i { background: var(--awake); }
+    body.not-awake .row .bar i { background: var(--asleep); }
+
+    @media (prefers-reduced-motion: reduce) {
+        body.not-awake #verdict { animation: none; }
+        /* The flash is the alarm signal, so it is softened rather than removed */
+        body.not-awake .flash { animation-duration: 1.6s; }
+    }
+</style>
+</head>
+<body>
+<div class="flash" aria-hidden="true"></div>
+
+<main>
+    <h1 id="verdict" role="status" aria-live="assertive">Ready</h1>
+
+    <div class="frame" id="frame">
+        <div id="webcam-container"></div>
+        <p class="placeholder">The camera preview appears here.</p>
+    </div>
+
+    <div class="controls">
+        <button id="start-button" type="button" onclick="init()">Start</button>
+        <button id="mute-button" type="button" class="ghost" onclick="toggleMute()">Sound on</button>
+    </div>
+
+    <div id="status" role="status" aria-live="polite"></div>
+    <div id="label-container"></div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
+<script type="text/javascript">
+    // The link to your model provided by Teachable Machine export panel
+    const URL = "https://teachablemachine.withgoogle.com/models/GKhV-X-4M/";
+
+    // If you know your exact class names, set the one that means "not awake" here
+    // (for example "Not awake"). Leave it null to detect it from the name automatically.
+    const NOT_AWAKE_CLASS = null;
+
+    // How many consecutive frames must agree before the state switches (prevents flickering).
+    const FRAMES_TO_ALARM = 6;
+    const FRAMES_TO_CLEAR = 3;
+
+    let model, webcam, labelContainer, maxPredictions;
+    let isStarting = false;
+    let isPredicting = false;
+    let state = "idle";            // idle | awake | not-awake
+    let notAwakeFrames = 0;
+    let awakeFrames = 0;
+
+    // ---------- Alarm sound (generated in the browser, no audio file needed) ----------
+    let audioCtx, alarmTimer, alarmGain, muted = false, alarmOn = false;
+
+    function setupAudio() {
+        if (audioCtx) return;
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        alarmGain = audioCtx.createGain();
+        alarmGain.gain.value = 0;
+        alarmGain.connect(audioCtx.destination);
+    }
+
+    function startAlarm() {
+        if (alarmOn || !audioCtx) return;
+        alarmOn = true;
+        if (audioCtx.state === "suspended") audioCtx.resume();
+        let high = false;
+        const beep = () => {
+            if (muted) return;
+            const osc = audioCtx.createOscillator();
+            osc.type = "square";
+            osc.frequency.value = high ? 1000 : 700;
+            high = !high;
+            osc.connect(alarmGain);
+            const t = audioCtx.currentTime;
+            alarmGain.gain.cancelScheduledValues(t);
+            alarmGain.gain.setValueAtTime(0.35, t);
+            alarmGain.gain.setValueAtTime(0, t + 0.3);
+            osc.start(t);
+            osc.stop(t + 0.32);
+        };
+        beep();
+        alarmTimer = setInterval(beep, 350);
+    }
+
+    function stopAlarm() {
+        alarmOn = false;
+        clearInterval(alarmTimer);
+        if (alarmGain) alarmGain.gain.value = 0;
+    }
+
+    function toggleMute() {
+        muted = !muted;
+        document.getElementById("mute-button").textContent = muted ? "Sound off" : "Sound on";
+    }
+
+    // ---------- Status text, colors, flashing ----------
+    function setState(next) {
+        if (next === state) return;
+        state = next;
+        const verdict = document.getElementById("verdict");
+        document.body.classList.toggle("awake", next === "awake");
+        document.body.classList.toggle("not-awake", next === "not-awake");
+        if (next === "awake") {
+            verdict.textContent = "Awake";
+            stopAlarm();
+        } else if (next === "not-awake") {
+            verdict.textContent = "Not awake";
+            startAlarm();
+        } else {
+            verdict.textContent = "Ready";
+            stopAlarm();
+        }
+    }
+
+    function isNotAwakeClass(name) {
+        if (NOT_AWAKE_CLASS) return name.trim().toLowerCase() === NOT_AWAKE_CLASS.trim().toLowerCase();
+        return /\b(not|asleep|sleep|sleeping|closed|drows|unawake|tired|no one visible|no person visible|nobody visible)\b/i.test(name);
+    }
+
+    // ---------- Camera + model ----------
+    // Start the camera directly from the Start click so its preview does not depend on model loading.
+    async function init() {
+        if (isStarting || model) return;
+
+        const status = document.getElementById("status");
+        const startButton = document.getElementById("start-button");
+        let webcamSetupComplete = false;
+        isStarting = true;
+        startButton.disabled = true;
+        setupAudio(); // must happen inside the click so the browser allows sound later
+
+        try {
+            if (!webcam) {
+                status.textContent = "Requesting camera access...";
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                    throw new Error("Camera access requires a secure page. Open this site using HTTPS or localhost.");
+                }
+
+                webcam = new tmImage.Webcam(400, 400, true);
+                await webcam.setup();
+                webcamSetupComplete = true;
+                await webcam.play();
+                document.getElementById("webcam-container").appendChild(webcam.canvas);
+                document.getElementById("frame").classList.add("live");
+                window.requestAnimationFrame(cameraLoop);
+            }
+
+        } catch (error) {
+            if (webcam) {
+                if (webcamSetupComplete) webcam.stop();
+                if (webcam.canvas && webcam.canvas.parentNode) webcam.canvas.remove();
+                webcam = undefined;
+            }
+            document.getElementById("frame").classList.remove("live");
+            const message = error && error.name === "NotAllowedError"
+                ? "Camera access was denied. Allow camera access in your browser and try again."
+                : error && error.name === "NotFoundError"
+                    ? "No camera was found. Connect a camera and try again."
+                    : error && error.name === "NotReadableError"
+                        ? "The camera is already in use by another app. Close it there and try again."
+                        : error && error.message
+                            ? error.message
+                            : "Could not start the camera.";
+            status.textContent = message;
+            console.error("Unable to start the camera:", error);
+            isStarting = false;
+            startButton.disabled = false;
+            return;
+        }
+
+        try {
+            status.textContent = "Camera is on. Loading model...";
+            document.getElementById("verdict").textContent = "Loading";
+            const loadedModel = await tmImage.load(URL + "model.json", URL + "metadata.json");
+            maxPredictions = loadedModel.getTotalClasses();
+            labelContainer = document.getElementById("label-container");
+            labelContainer.innerHTML = "";
+            for (let i = 0; i < maxPredictions; i++) {
+                const row = document.createElement("div");
+                row.className = "row";
+                row.innerHTML = '<span class="name"></span><span class="pct"></span><div class="bar"><i></i></div>';
+                labelContainer.appendChild(row);
+            }
+            model = loadedModel;
+            status.textContent = "";
+            startButton.textContent = "Running";
+        } catch (error) {
+            document.getElementById("verdict").textContent = "Ready";
+            status.textContent = "Camera is on, but the model could not load. Check your internet connection and try Start again.";
+            console.error("Unable to load the model:", error);
+            startButton.disabled = false;
+        } finally {
+            isStarting = false;
+        }
+    }
+
+    function cameraLoop() {
+        if (!webcam) return;
+        webcam.update(); // update the webcam frame
+        window.requestAnimationFrame(cameraLoop);
+        if (model && !isPredicting) {
+            isPredicting = true;
+            predict().catch(error => {
+                console.error("Unable to classify the camera frame:", error);
+            }).finally(() => {
+                isPredicting = false;
+            });
+        }
+    }
+
+    // run the webcam image through the image model
+    async function predict() {
+        const prediction = await model.predict(webcam.canvas);
+
+        let best = prediction[0];
+        for (let i = 0; i < maxPredictions; i++) {
+            const p = prediction[i];
+            if (p.probability > best.probability) best = p;
+            const row = labelContainer.childNodes[i];
+            row.querySelector(".name").textContent = p.className;
+            row.querySelector(".pct").textContent = Math.round(p.probability * 100) + "%";
+            row.querySelector(".bar i").style.width = (p.probability * 100) + "%";
+        }
+
+        // Smooth the decision over a few frames so it doesn't flicker.
+        if (isNotAwakeClass(best.className)) {
+            notAwakeFrames++;
+            awakeFrames = 0;
+            if (notAwakeFrames >= FRAMES_TO_ALARM) setState("not-awake");
+        } else {
+            awakeFrames++;
+            notAwakeFrames = 0;
+            if (awakeFrames >= FRAMES_TO_CLEAR || state === "idle") setState("awake");
+        }
+    }
+</script>
+</body>
+</html>
